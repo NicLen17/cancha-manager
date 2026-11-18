@@ -61,19 +61,15 @@ export function DemoControls() {
               disabled={pending || confirmation !== "REINICIAR DEMO"}
               onClick={() =>
                 startTransition(async () => {
-                  try {
-                    await resetDemoAction(confirmation);
-                    setOpen(false);
-                    setConfirmation("");
-                    toast.success("Demo restablecida");
-                    router.refresh();
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error
-                        ? error.message
-                        : "No se pudo restablecer la demo",
-                    );
+                  const result = await resetDemoAction(confirmation);
+                  if (!result.ok) {
+                    toast.error(result.error);
+                    return;
                   }
+                  setOpen(false);
+                  setConfirmation("");
+                  toast.success("Demo restablecida");
+                  router.refresh();
                 })
               }
             >

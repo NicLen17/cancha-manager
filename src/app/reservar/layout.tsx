@@ -1,12 +1,13 @@
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
-import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 export const dynamic = "force-dynamic";
 
 export default async function ReservarLayout({
   children,
 }: LayoutProps<"/reservar">) {
-  const venue = await getDataAccess().venues.getDefaultVenue();
+  // Deduplicado con React cache: la page pide el mismo complejo.
+  const venue = await getDefaultVenue();
 
   return (
     <>

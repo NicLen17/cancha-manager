@@ -7,7 +7,7 @@ import { SPORT_LABELS } from "@/lib/data/types";
 import {
   deleteCourt,
   updateCourtPlan,
-  updateVenueConfig,
+  updateVenuePlan,
   upsertCourt,
 } from "@/lib/services/admin-actions";
 import { formatArs } from "@/lib/services/pricing";
@@ -36,6 +36,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmActionDialog } from "@/components/admin/confirm-action-dialog";
 
 type DraftCourt = {
   id?: string;
@@ -255,22 +256,11 @@ export function MapBuilder({
 
   function saveVenueDimensions() {
     startTransition(async () => {
-      try {
-        await updateVenueConfig({
-          depositPercent: venue.depositPercent,
-          bankAlias: venue.bankAlias,
-          bankCbu: venue.bankCbu,
-          bankHolder: venue.bankHolder,
-          whatsappE164: venue.whatsappE164,
-          planWidthM,
-          planLengthM,
-        });
-        toast.success("Dimensiones del plano actualizadas");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar",
-        );
-      }
+      // Solo manda el plano: los datos bancarios se leen en el servidor, así
+      // no se pisan cambios hechos en Configuración desde otra pestaña.
+      const result = await updateVenuePlan({ planWidthM, planLengthM });
+      if (result.ok) toast.success("Dimensiones del plano actualizadas");
+      else toast.error(result.error);
     });
   }
 
@@ -287,9 +277,9 @@ export function MapBuilder({
   function saveCourt() {
     if (!selectedDraft) return;
     startTransition(async () => {
-      try {
+      {
         const isTemp = selectedDraft.id?.startsWith("temp-");
-        const saved = await upsertCourt({
+        const result = await upsertCourt({
           id: isTemp ? undefined : selectedDraft.id,
           name: selectedDraft.name,
           sport: selectedDraft.sport,
@@ -306,6 +296,13 @@ export function MapBuilder({
           sortOrder: selectedDraft.sortOrder,
           isActive: selectedDraft.isActive,
         });
+        // En error el borrador local queda tal cual (es un editor con cambios
+        // sin guardar): el usuario corrige y reintenta sin perder lo movido.
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        const saved = result.data;
         setDrafts((prev) =>
           prev.map((d) =>
             d.id === selectedDraft.id ? courtToDraft(saved) : d,
@@ -313,10 +310,6 @@ export function MapBuilder({
         );
         setSelectedId(saved.id);
         toast.success("Cancha guardada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar cancha",
-        );
       }
     });
   }
@@ -326,41 +319,42 @@ export function MapBuilder({
       saveCourt();
       return;
     }
+    const courtId = selectedDraft.id;
     startTransition(async () => {
-      try {
-        await updateCourtPlan(selectedDraft.id!, {
-          planX_m: selectedDraft.plan.x,
-          planY_m: selectedDraft.plan.y,
-          planWidthM: selectedDraft.plan.width,
-          planLengthM: selectedDraft.plan.length,
-          planRotationDeg: selectedDraft.plan.rotation,
-        });
-        toast.success("Posición guardada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar posición",
-        );
-      }
+      const result = await updateCourtPlan(courtId, {
+        planX_m: selectedDraft.plan.x,
+        planY_m: selectedDraft.plan.y,
+        planWidthM: selectedDraft.plan.width,
+        planLengthM: selectedDraft.plan.length,
+        planRotationDeg: selectedDraft.plan.rotation,
+      });
+      if (result.ok) toast.success("Posición guardada");
+      else toast.error(result.error);
     });
   }
 
   function removeCourt() {
     if (!selectedDraft?.id) return;
-    if (selectedDraft.id.startsWith("temp-")) {
-      setDrafts((prev) => prev.filter((d) => d.id !== selectedDraft.id));
-      setSelectedId(drafts[0]?.id ?? null);
+    const removedId = selectedDraft.id;
+    const nextSelected =
+      drafts.find((d) => d.id && d.id !== removedId)?.id ?? null;
+    if (removedId.startsWith("temp-")) {
+      setDrafts((prev) => prev.filter((d) => d.id !== removedId));
+      setSelectedId(nextSelected);
       return;
     }
+    // Optimista con rollback manual: el estado del editor es local (no viene
+    // de useOptimistic), así que guardamos la copia para restaurarla.
+    const previous = drafts;
+    setDrafts((prev) => prev.filter((d) => d.id !== removedId));
+    setSelectedId(nextSelected);
     startTransition(async () => {
-      try {
-        await deleteCourt(selectedDraft.id!);
-        setDrafts((prev) => prev.filter((d) => d.id !== selectedDraft.id));
-        setSelectedId(null);
-        toast.success("Cancha eliminada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al eliminar",
-        );
+      const result = await deleteCourt(removedId);
+      if (result.ok) toast.success("Cancha eliminada");
+      else {
+        toast.error(result.error);
+        setDrafts(previous);
+        setSelectedId(removedId);
       }
     });
   }
@@ -456,8 +450,9 @@ export function MapBuilder({
             <>
               <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3">
                 <div className="space-y-2">
-                  <Label>X (m)</Label>
+                  <Label htmlFor="map-x">X (m)</Label>
                   <Input
+                    id="map-x"
                     type="number"
                     step={0.5}
                     value={selectedDraft.plan.x}
@@ -470,8 +465,9 @@ export function MapBuilder({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Y (m)</Label>
+                  <Label htmlFor="map-y">Y (m)</Label>
                   <Input
+                    id="map-y"
                     type="number"
                     step={0.5}
                     value={selectedDraft.plan.y}
@@ -484,8 +480,9 @@ export function MapBuilder({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Ancho (m)</Label>
+                  <Label htmlFor="map-width">Ancho (m)</Label>
                   <Input
+                    id="map-width"
                     type="number"
                     step={0.5}
                     value={selectedDraft.plan.width}
@@ -498,8 +495,9 @@ export function MapBuilder({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Largo (m)</Label>
+                  <Label htmlFor="map-length">Largo (m)</Label>
                   <Input
+                    id="map-length"
                     type="number"
                     step={0.5}
                     value={selectedDraft.plan.length}
@@ -512,8 +510,9 @@ export function MapBuilder({
                   />
                 </div>
                 <div className="col-span-2 space-y-2">
-                  <Label>Rotación (°)</Label>
+                  <Label htmlFor="map-rotation">Rotación (°)</Label>
                   <Input
+                    id="map-rotation"
                     type="number"
                     value={selectedDraft.plan.rotation}
                     onChange={(e) =>
@@ -527,22 +526,23 @@ export function MapBuilder({
               </div>
 
               <div className="space-y-2">
-                <Label>Nombre</Label>
+                <Label htmlFor="map-name">Nombre</Label>
                 <Input
+                  id="map-name"
                   value={selectedDraft.name}
                   onChange={(e) => updateSelected({ name: e.target.value })}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Deporte</Label>
+                <Label htmlFor="map-sport">Deporte</Label>
                 <Select
                   value={selectedDraft.sport}
                   onValueChange={(v) =>
                     updateSelected({ sport: v as Sport })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="map-sport" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -556,8 +556,9 @@ export function MapBuilder({
               </div>
 
               <div className="space-y-2">
-                <Label>Descripción</Label>
+                <Label htmlFor="map-description">Descripción</Label>
                 <Textarea
+                  id="map-description"
                   value={selectedDraft.description}
                   onChange={(e) =>
                     updateSelected({ description: e.target.value })
@@ -567,8 +568,9 @@ export function MapBuilder({
               </div>
 
               <div className="space-y-2">
-                <Label>Precio base ({formatArs(selectedDraft.basePriceArs)})</Label>
+                <Label htmlFor="map-price">Precio base ({formatArs(selectedDraft.basePriceArs)})</Label>
                 <Input
+                  id="map-price"
                   type="number"
                   value={selectedDraft.basePriceArs}
                   onChange={(e) =>
@@ -578,8 +580,9 @@ export function MapBuilder({
               </div>
 
               <div className="space-y-2">
-                <Label>Duración turno (min)</Label>
+                <Label htmlFor="map-duration">Duración turno (min)</Label>
                 <Input
+                  id="map-duration"
                   type="number"
                   value={selectedDraft.slotDurationMinutes}
                   onChange={(e) =>
@@ -606,13 +609,17 @@ export function MapBuilder({
                 <Button onClick={saveCourt} disabled={pending} className="h-10">
                   Guardar cancha
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={removeCourt}
-                  disabled={pending}
-                >
-                  Eliminar
-                </Button>
+                <ConfirmActionDialog
+                  title={`¿Eliminar ${selectedDraft.name}?`}
+                  description="Si tiene reservas no se puede borrar: desactivala para sacarla de la reserva online."
+                  confirmLabel="Eliminar cancha"
+                  onConfirm={removeCourt}
+                  trigger={
+                    <Button variant="destructive" disabled={pending}>
+                      Eliminar
+                    </Button>
+                  }
+                />
               </div>
             </>
           ) : (

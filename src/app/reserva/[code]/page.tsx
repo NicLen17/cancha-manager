@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyField } from "@/components/ui/copy-button";
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { PAYMENT_LABELS, SPORT_LABELS, STATUS_LABELS } from "@/lib/data/types";
 import { formatTimeLabel } from "@/lib/services/availability";
 import { formatArs } from "@/lib/services/pricing";
@@ -32,12 +33,14 @@ export default async function ReservaDetailPage({
   params,
 }: PageProps<"/reserva/[code]">) {
   const { code } = await params;
-  if (!(await ownsCode(code)) && !(await isAdmin())) notFound();
+  if (!/^[A-Za-z0-9-]{4,40}$/.test(code)) notFound();
+  // Cookies de dueño y de admin en paralelo (antes eran dos awaits en serie).
+  const [owns, admin] = await Promise.all([ownsCode(code), isAdmin()]);
+  if (!owns && !admin) notFound();
 
-  const db = getDataAccess();
   const [reservation, venue] = await Promise.all([
-    db.reservations.getByCode(code),
-    db.venues.getDefaultVenue(),
+    getDataAccess().reservations.getByCode(code),
+    getDefaultVenue(),
   ]);
 
   if (!reservation) notFound();

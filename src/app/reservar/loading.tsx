@@ -1,17 +1,12 @@
-import { Skeleton } from "@/components/ui/skeleton";
 import { DiagonalSection } from "@/components/layout/diagonal-section";
+import { BookingBoardSkeleton } from "@/components/booking/booking-skeletons";
 
+// Mismo contenedor y paddings que reservar/page.tsx.
 export default function ReservarLoading() {
   return (
-    <DiagonalSection tone="muted" className="py-10 sm:py-14">
-      <div className="mx-auto max-w-6xl space-y-6 px-4 sm:px-6">
-        <div className="mx-auto max-w-2xl space-y-3 text-center">
-          <Skeleton className="mx-auto h-4 w-32" />
-          <Skeleton className="mx-auto h-10 w-64" />
-          <Skeleton className="mx-auto h-5 w-96 max-w-full" />
-        </div>
-        <Skeleton className="h-40 w-full rounded-2xl" />
-        <Skeleton className="aspect-[3/2] w-full rounded-2xl" />
+    <DiagonalSection tone="muted" className="py-6 sm:py-8">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <BookingBoardSkeleton />
       </div>
     </DiagonalSection>
   );

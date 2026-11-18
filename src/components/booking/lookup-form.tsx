@@ -20,6 +20,7 @@ import type { ReservationWithDetails } from "@/lib/data/types";
 import { PAYMENT_LABELS, SPORT_LABELS, STATUS_LABELS } from "@/lib/data/types";
 import { formatTimeLabel } from "@/lib/services/availability";
 import { formatArs } from "@/lib/services/pricing";
+import { formatVenueDate } from "@/lib/services/venue-time";
 import { lookupReservationAction } from "@/lib/services/reservations";
 
 export function LookupForm() {
@@ -41,15 +42,14 @@ export function LookupForm() {
 
     startTransition(async () => {
       try {
-        const reservation = await lookupReservationAction({ code, phone });
-        setResult(reservation ?? "empty");
-        if (!reservation) {
-          toast.message("No encontramos una reserva con esos datos");
+        const response = await lookupReservationAction({ code, phone });
+        if (!response.ok) {
+          toast.error(response.error);
+          return;
         }
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al buscar la reserva",
-        );
+        setResult(response.data ?? "empty");
+      } catch {
+        toast.error("No pudimos buscar la reserva. Revisá tu conexión.");
       }
     });
   };
@@ -93,7 +93,7 @@ export function LookupForm() {
                   {isPending ? (
                     <>
                       <Loader2Icon
-                        className="animate-spin"
+                        className="animate-spin motion-reduce:animate-none"
                         data-icon="inline-start"
                       />
                       Buscando…
@@ -109,7 +109,7 @@ export function LookupForm() {
             </form>
 
             {result === "empty" ? (
-              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              <p role="status" className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
                 No hay reservas que coincidan. Verificá el código y el teléfono.
               </p>
             ) : null}
@@ -129,7 +129,7 @@ function ReservationSummary({
 }: {
   reservation: ReservationWithDetails;
 }) {
-  const dateLabel = new Date(reservation.startsAt).toLocaleDateString("es-AR", {
+  const dateLabel = formatVenueDate(reservation.startsAt, {
     weekday: "long",
     day: "numeric",
     month: "long",

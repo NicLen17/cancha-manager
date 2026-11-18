@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useOptimistic, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Loader2Icon, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Court, PriceRule } from "@/lib/data/types";
+import { priceRuleInputSchema } from "@/lib/data/schemas";
 import { DAY_LABELS } from "@/lib/services/admin-stats";
 import { deletePriceRule, upsertPriceRule } from "@/lib/services/admin-actions";
-import { formatArs, resolvePrice } from "@/lib/services/pricing";
-import { generateSlots } from "@/lib/services/availability";
+import { formatArs } from "@/lib/services/pricing";
+import { formatTimeLabel, generateSlots } from "@/lib/services/availability";
+import { venueDateKey, venueNoon } from "@/lib/services/venue-time";
+import { ConfirmActionDialog } from "@/components/admin/confirm-action-dialog";
 import type { Closure, VenueHours } from "@/lib/data/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,11 @@ type RuleForm = {
   isActive: boolean;
 };
 
+type OptimisticRule = PriceRule & { isSaving?: boolean };
+type RuleUpdate =
+  | { type: "upsert"; rule: OptimisticRule }
+  | { type: "remove"; id: string };
+
 function emptyRule(): RuleForm {
   return {
     courtId: null,
@@ -79,10 +87,23 @@ export function PriceRulesManager({
 }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<RuleForm>(emptyRule);
-  const [previewDate, setPreviewDate] = useState(
-    new Date().toISOString().slice(0, 10),
+  // Antes: toISOString() (UTC) → después de las 21 h mostraba el día siguiente.
+  const [previewDate, setPreviewDate] = useState(() =>
+    venueDateKey(new Date()),
   );
   const [pending, startTransition] = useTransition();
+  // Lista optimista (la vista previa de precios también la usa, así el efecto
+  // de una regla nueva se ve antes de que responda el servidor).
+  const [items, applyOptimistic] = useOptimistic(
+    rules as OptimisticRule[],
+    (list, update: RuleUpdate) => {
+      if (update.type === "remove") return list.filter((r) => r.id !== update.id);
+      const exists = list.some((r) => r.id === update.rule.id);
+      return exists
+        ? list.map((r) => (r.id === update.rule.id ? update.rule : r))
+        : [...list, update.rule];
+    },
+  );
 
   function openCreate() {
     setForm(emptyRule());
@@ -106,29 +127,44 @@ export function PriceRulesManager({
   }
 
   function save() {
+    const parsed = priceRuleInputSchema.safeParse(form);
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Revisá los datos");
+      return;
+    }
+    if (parsed.data.priceArs === null && !parsed.data.surchargeArs) {
+      toast.error("Cargá un precio fijo o un recargo");
+      return;
+    }
+    const isNew = !form.id;
+    const snapshot = form;
+    setOpen(false);
     startTransition(async () => {
-      try {
-        await upsertPriceRule(form);
-        toast.success(form.id ? "Regla actualizada" : "Regla creada");
-        setOpen(false);
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar",
-        );
+      applyOptimistic({
+        type: "upsert",
+        rule: {
+          ...parsed.data,
+          id: form.id ?? `temp-${Date.now()}`,
+          venueId: rules[0]?.venueId ?? "",
+          isSaving: true,
+        },
+      });
+      const result = await upsertPriceRule(parsed.data);
+      if (result.ok) toast.success(isNew ? "Regla creada" : "Regla actualizada");
+      else {
+        toast.error(result.error);
+        setForm(snapshot);
+        setOpen(true);
       }
     });
   }
 
-  function remove(id: string) {
+  function remove(rule: PriceRule) {
     startTransition(async () => {
-      try {
-        await deletePriceRule(id);
-        toast.success("Regla eliminada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al eliminar",
-        );
-      }
+      applyOptimistic({ type: "remove", id: rule.id });
+      const result = await deletePriceRule(rule.id);
+      if (result.ok) toast.success(`Regla “${rule.name}” eliminada`);
+      else toast.error(result.error);
     });
   }
 
@@ -142,31 +178,27 @@ export function PriceRulesManager({
   }
 
   const previewGrid = useMemo(() => {
-    const date = new Date(previewDate);
+    // `new Date("YYYY-MM-DD")` es medianoche UTC = día anterior en Argentina.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(previewDate)) return [];
+    const date = venueNoon(previewDate);
     return courts
       .filter((c) => c.isActive)
-      .map((court) => {
-        const slots = generateSlots({
+      .map((court) => ({
+        court,
+        slots: generateSlots({
           court,
           date,
           venueHours: hours,
           reservations: [],
           closures,
-          priceRules: rules,
-        });
-        return {
-          court,
-          slots: slots.map((s) => ({
-            time: new Date(s.startsAt).toLocaleTimeString("es-AR", {
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            }),
-            price: resolvePrice(court, new Date(s.startsAt), rules),
-          })),
-        };
-      });
-  }, [closures, courts, hours, previewDate, rules]);
+          priceRules: items,
+        }).map((s) => ({
+          key: s.startsAt,
+          time: formatTimeLabel(s.startsAt),
+          price: s.priceArs,
+        })),
+      }));
+  }, [closures, courts, hours, previewDate, items]);
 
   return (
     <div className="space-y-6">
@@ -192,9 +224,26 @@ export function PriceRulesManager({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rules.map((rule) => (
-              <TableRow key={rule.id}>
-                <TableCell className="font-medium">{rule.name}</TableCell>
+            {items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="h-24 text-center text-sm text-muted-foreground">
+                  Sin reglas: todos los turnos usan el precio base de cada cancha.
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {items.map((rule) => (
+              <TableRow key={rule.id} aria-busy={rule.isSaving || undefined}>
+                <TableCell className="font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    {rule.name}
+                    {rule.isSaving ? (
+                      <Loader2Icon
+                        aria-label="Guardando"
+                        className="size-3.5 animate-spin text-muted-foreground motion-reduce:animate-none"
+                      />
+                    ) : null}
+                  </span>
+                </TableCell>
                 <TableCell>
                   {rule.courtId
                     ? courts.find((c) => c.id === rule.courtId)?.name ?? "—"
@@ -224,17 +273,28 @@ export function PriceRulesManager({
                     <Button
                       size="icon"
                       variant="ghost"
+                      disabled={rule.isSaving}
                       onClick={() => openEdit(rule)}
+                      aria-label={`Editar regla ${rule.name}`}
                     >
-                      <Pencil className="size-4" />
+                      <Pencil aria-hidden="true" className="size-4" />
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => remove(rule.id)}
-                    >
-                      <Trash2 className="size-4 text-destructive" />
-                    </Button>
+                    <ConfirmActionDialog
+                      title={`¿Eliminar la regla “${rule.name}”?`}
+                      description="Los turnos vuelven al precio base de la cancha (o a otra regla que aplique)."
+                      confirmLabel="Eliminar regla"
+                      onConfirm={() => remove(rule)}
+                      trigger={
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={rule.isSaving}
+                          aria-label={`Eliminar regla ${rule.name}`}
+                        >
+                          <Trash2 aria-hidden="true" className="size-4 text-destructive" />
+                        </Button>
+                      }
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -252,8 +312,9 @@ export function PriceRulesManager({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="max-w-xs space-y-1">
-            <Label>Fecha</Label>
+            <Label htmlFor="price-preview-date">Fecha</Label>
             <Input
+              id="price-preview-date"
               type="date"
               value={previewDate}
               onChange={(e) => setPreviewDate(e.target.value)}
@@ -266,8 +327,8 @@ export function PriceRulesManager({
                 <div className="flex flex-wrap gap-2">
                   {slots.map((s) => (
                     <span
-                      key={`${court.id}-${s.time}`}
-                      className="rounded-md border bg-muted/50 px-2 py-1 text-xs"
+                      key={s.key}
+                      className="rounded-md border bg-muted/50 px-2 py-1 text-xs tabular-nums"
                     >
                       {s.time}: {formatArs(s.price)}
                     </span>
@@ -290,20 +351,21 @@ export function PriceRulesManager({
           </Button>
         }
       >
-        <AdminField label="Nombre">
+        <AdminField label="Nombre" htmlFor="rule-name">
           <Input
+            id="rule-name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </AdminField>
-        <AdminField label="Cancha">
+        <AdminField label="Cancha" htmlFor="rule-court">
           <Select
             value={form.courtId ?? "all"}
             onValueChange={(v) =>
               setForm({ ...form, courtId: v === "all" ? null : v })
             }
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger id="rule-court" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -324,6 +386,8 @@ export function PriceRulesManager({
                 <button
                   key={label}
                   type="button"
+                  aria-pressed={selected}
+                  aria-label={label}
                   onClick={() => toggleDay(day)}
                   className={cn(
                     "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -339,8 +403,9 @@ export function PriceRulesManager({
           </div>
         </AdminField>
         <div className="grid grid-cols-2 gap-4">
-          <AdminField label="Desde">
+          <AdminField label="Desde" htmlFor="rule-starts">
             <Input
+              id="rule-starts"
               type="time"
               value={form.startsAt}
               onChange={(e) =>
@@ -348,8 +413,9 @@ export function PriceRulesManager({
               }
             />
           </AdminField>
-          <AdminField label="Hasta">
+          <AdminField label="Hasta" htmlFor="rule-ends">
             <Input
+              id="rule-ends"
               type="time"
               value={form.endsAt}
               onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
@@ -357,9 +423,11 @@ export function PriceRulesManager({
           </AdminField>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <AdminField label="Precio fijo (opcional)">
+          <AdminField label="Precio fijo (opcional)" htmlFor="rule-price">
             <Input
+              id="rule-price"
               type="number"
+              min={0}
               value={form.priceArs ?? ""}
               onChange={(e) =>
                 setForm({
@@ -369,8 +437,9 @@ export function PriceRulesManager({
               }
             />
           </AdminField>
-          <AdminField label="Recargo (opcional)">
+          <AdminField label="Recargo (opcional)" htmlFor="rule-surcharge">
             <Input
+              id="rule-surcharge"
               type="number"
               value={form.surchargeArs ?? ""}
               onChange={(e) =>
@@ -384,8 +453,9 @@ export function PriceRulesManager({
             />
           </AdminField>
         </div>
-        <AdminField label="Prioridad">
+        <AdminField label="Prioridad" htmlFor="rule-priority">
           <Input
+            id="rule-priority"
             type="number"
             value={form.priority}
             onChange={(e) =>

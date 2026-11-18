@@ -1,9 +1,10 @@
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { MapBuilder } from "@/components/admin/map-builder";
 
 export default async function AdminMapaPage() {
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const courts = await db.courts.listByVenue(venue.id);
 
   return (

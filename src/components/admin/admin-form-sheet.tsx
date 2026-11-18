@@ -79,18 +79,26 @@ export function AdminFormSheet({
   );
 }
 
+/**
+ * Etiqueta + control. Pasá `htmlFor` con el `id` del control para que el label
+ * quede asociado (lectores de pantalla y click en la etiqueta).
+ */
 export function AdminField({
   label,
+  htmlFor,
   children,
   className,
 }: {
   label: string;
+  htmlFor?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <div className={cn("space-y-2", className)}>
-      <label className="text-sm font-medium text-foreground">{label}</label>
+      <label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        {label}
+      </label>
       {children}
     </div>
   );

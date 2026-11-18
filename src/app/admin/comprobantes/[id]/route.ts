@@ -1,6 +1,7 @@
 import { getDataAccess } from "@/lib/data";
 import { supabaseRequest } from "@/lib/data/supabase/http";
 import { isAdmin } from "@/lib/services/auth";
+import { usesSupabaseStorage } from "@/lib/services/receipts";
 
 export async function GET(
   _request: Request,
@@ -12,6 +13,11 @@ export async function GET(
   const reservation = await getDataAccess().reservations.getById(id);
   if (!reservation?.receiptPath)
     return new Response("Comprobante no disponible", { status: 404 });
+  if (!usesSupabaseStorage())
+    return new Response(
+      "Modo demo sin almacenamiento: el comprobante se validó pero no se guardó.",
+      { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+    );
   const path = reservation.receiptPath
     .split("/")
     .map(encodeURIComponent)

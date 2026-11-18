@@ -14,10 +14,10 @@ import {
 
 export default function ReservarError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -34,7 +34,8 @@ export default function ReservarError({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Button type="button" onClick={reset}>
+            {/* retry() vuelve a pedir los datos al servidor; reset() solo re-renderizaba. */}
+            <Button type="button" onClick={() => retry()}>
               Reintentar
             </Button>
             <Button asChild variant="outline">

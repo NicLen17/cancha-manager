@@ -11,10 +11,11 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { computeDashboardStats } from "@/lib/services/admin-stats";
 import { formatArs } from "@/lib/services/pricing";
 import { PendingReservationsList } from "@/components/admin/reservation-actions";
-import { DashboardHourChart } from "@/components/admin/dashboard-charts";
+import { DashboardHourChart } from "@/components/admin/dashboard-hour-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,7 @@ import { venueDateKey } from "@/lib/services/venue-time";
 
 export default async function AdminDashboardPage() {
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const [reservations, courts] = await Promise.all([
     db.reservations.listByVenue(venue.id),
     db.courts.listByVenue(venue.id),
@@ -46,7 +47,7 @@ export default async function AdminDashboardPage() {
       {/* Header with Quick Actions */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-lime-400">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-navy-700">
             <ZapIcon className="size-4" />
             <span>Centro de Control Operativo</span>
           </div>
@@ -76,7 +77,7 @@ export default async function AdminDashboardPage() {
             className="h-11 px-4 text-xs font-semibold"
           >
             <Link href="/admin/mapa">
-              <LandPlotIcon className="size-4 mr-1.5 text-lime-500" />
+              <LandPlotIcon aria-hidden="true" className="size-4 mr-1.5 text-navy-700" />
               Mapa en Vivo
             </Link>
           </Button>
@@ -91,7 +92,7 @@ export default async function AdminDashboardPage() {
             <CardDescription className="text-xs font-semibold uppercase tracking-wider">
               Ingresos Estimados
             </CardDescription>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 text-lime-500">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/20 text-navy-800">
               <DollarSignIcon className="size-5" />
             </div>
           </CardHeader>
@@ -100,7 +101,7 @@ export default async function AdminDashboardPage() {
               {formatArs(stats.weeklyRevenueArs)}
             </div>
             <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
-              <TrendingUpIcon className="size-3 text-lime-500" />
+              <TrendingUpIcon aria-hidden="true" className="size-3 text-navy-700" />
               <span>Proyección semanal activa</span>
             </p>
           </CardContent>
@@ -222,7 +223,7 @@ export default async function AdminDashboardPage() {
                   asChild
                   variant="ghost"
                   size="sm"
-                  className="text-xs text-lime-500"
+                  className="text-xs text-navy-700"
                 >
                   <Link href="/admin/reservas?tab=agenda">
                     Ver agenda completa →
@@ -263,7 +264,7 @@ export default async function AdminDashboardPage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-lime-500">
+                          <span className="font-bold text-navy-800 tabular-nums">
                             {formatArs(res.priceArs)}
                           </span>
                           <Button
@@ -273,7 +274,7 @@ export default async function AdminDashboardPage() {
                             className="h-8 px-2.5 text-[11px]"
                           >
                             <a href={waUrl} target="_blank" rel="noreferrer">
-                              <MessageCircleIcon className="size-3.5 mr-1 text-lime-500" />
+                              <MessageCircleIcon aria-hidden="true" className="size-3.5 mr-1 text-navy-700" />
                               WhatsApp
                             </a>
                           </Button>

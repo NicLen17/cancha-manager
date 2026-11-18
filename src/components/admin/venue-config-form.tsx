@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ComponentProps } from "react";
 import { toast } from "sonner";
+import { Loader2Icon } from "lucide-react";
 import type { Venue } from "@/lib/data/types";
+import { venueConfigSchema } from "@/lib/data/schemas";
 import { updateVenueConfig } from "@/lib/services/admin-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +17,23 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+type VenueConfigFormState = {
+  depositPercent: number;
+  bankAlias: string;
+  bankCbu: string;
+  bankHolder: string;
+  whatsappE164: string;
+  planWidthM: number;
+  planLengthM: number;
+};
+
+/**
+ * Formulario controlado: los valores guardados son los del servidor. La page
+ * le pone `key` con esos valores, así se remonta si cambian por otra vía
+ * (mapa, reinicio de demo) en vez de mostrar datos viejos.
+ */
 export function VenueConfigForm({ venue }: { venue: Venue }) {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<VenueConfigFormState>({
     depositPercent: venue.depositPercent,
     bankAlias: venue.bankAlias,
     bankCbu: venue.bankCbu,
@@ -28,17 +45,42 @@ export function VenueConfigForm({ venue }: { venue: Venue }) {
   const [pending, startTransition] = useTransition();
 
   function save() {
+    const parsed = venueConfigSchema.safeParse(form);
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Revisá los datos");
+      return;
+    }
     startTransition(async () => {
-      try {
-        await updateVenueConfig(form);
-        toast.success("Configuración guardada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar",
-        );
-      }
+      const result = await updateVenueConfig(parsed.data);
+      if (result.ok) toast.success("Configuración guardada");
+      else toast.error(result.error);
     });
   }
+
+  const field = (
+    key: keyof VenueConfigFormState,
+    label: string,
+    props: ComponentProps<typeof Input> = {},
+    className = "space-y-1",
+  ) => {
+    const numeric = typeof form[key] === "number";
+    return (
+      <div className={className}>
+        <Label htmlFor={`venue-${key}`}>{label}</Label>
+        <Input
+          id={`venue-${key}`}
+          value={form[key]}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              [key]: numeric ? e.target.valueAsNumber : e.target.value,
+            })
+          }
+          {...props}
+        />
+      </div>
+    );
+  };
 
   return (
     <Card className="max-w-2xl">
@@ -50,75 +92,31 @@ export function VenueConfigForm({ venue }: { venue: Venue }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1">
-            <Label>Seña (%)</Label>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={form.depositPercent}
-              onChange={(e) =>
-                setForm({ ...form, depositPercent: Number(e.target.value) })
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>WhatsApp (E.164)</Label>
-            <Input
-              value={form.whatsappE164}
-              onChange={(e) =>
-                setForm({ ...form, whatsappE164: e.target.value })
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Alias bancario</Label>
-            <Input
-              value={form.bankAlias}
-              onChange={(e) => setForm({ ...form, bankAlias: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>CBU</Label>
-            <Input
-              value={form.bankCbu}
-              onChange={(e) => setForm({ ...form, bankCbu: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1 sm:col-span-2">
-            <Label>Titular de la cuenta</Label>
-            <Input
-              value={form.bankHolder}
-              onChange={(e) =>
-                setForm({ ...form, bankHolder: e.target.value })
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Plano ancho (m)</Label>
-            <Input
-              type="number"
-              step={0.5}
-              value={form.planWidthM}
-              onChange={(e) =>
-                setForm({ ...form, planWidthM: Number(e.target.value) })
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Plano largo (m)</Label>
-            <Input
-              type="number"
-              step={0.5}
-              value={form.planLengthM}
-              onChange={(e) =>
-                setForm({ ...form, planLengthM: Number(e.target.value) })
-              }
-            />
-          </div>
+          {field("depositPercent", "Seña (%)", {
+            type: "number",
+            min: 0,
+            max: 100,
+            inputMode: "numeric",
+          })}
+          {field("whatsappE164", "WhatsApp (E.164)", {
+            inputMode: "tel",
+            autoComplete: "off",
+            spellCheck: false,
+          })}
+          {field("bankAlias", "Alias bancario", { spellCheck: false })}
+          {field("bankCbu", "CBU", { inputMode: "numeric", spellCheck: false })}
+          {field("bankHolder", "Titular de la cuenta", {}, "space-y-1 sm:col-span-2")}
+          {field("planWidthM", "Plano ancho (m)", { type: "number", step: 0.5, min: 10 })}
+          {field("planLengthM", "Plano largo (m)", { type: "number", step: 0.5, min: 10 })}
         </div>
         <Button onClick={save} disabled={pending}>
-          Guardar configuración
+          {pending ? (
+            <Loader2Icon
+              aria-hidden="true"
+              className="size-4 animate-spin motion-reduce:animate-none"
+            />
+          ) : null}
+          {pending ? "Guardando…" : "Guardar configuración"}
         </Button>
       </CardContent>
     </Card>

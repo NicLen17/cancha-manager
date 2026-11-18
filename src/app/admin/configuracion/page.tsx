@@ -1,10 +1,19 @@
-import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { VenueConfigForm } from "@/components/admin/venue-config-form";
 import { DemoControls } from "@/components/admin/demo-controls";
 
 export default async function AdminConfiguracionPage() {
-  const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
+  // Remonta el formulario si la config cambió por otra vía (mapa, reinicio).
+  const configKey = [
+    venue.depositPercent,
+    venue.bankAlias,
+    venue.bankCbu,
+    venue.bankHolder,
+    venue.whatsappE164,
+    venue.planWidthM,
+    venue.planLengthM,
+  ].join("|");
 
   return (
     <div className="space-y-6">
@@ -14,7 +23,7 @@ export default async function AdminConfiguracionPage() {
           Datos bancarios, contacto y parámetros del complejo
         </p>
       </div>
-      <VenueConfigForm venue={venue} />
+      <VenueConfigForm key={configKey} venue={venue} />
       <DemoControls />
     </div>
   );

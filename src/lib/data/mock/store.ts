@@ -162,6 +162,12 @@ export const mockDataAccess: DataAccess = {
     },
     async remove(id) {
       const store = getStore();
+      // Paridad con la FK de Supabase (23503): borrar una cancha con reservas
+      // dejaba reservas huérfanas y rompía /admin/reservas.
+      if (store.reservations.some((r) => r.courtId === id))
+        throw new Error(
+          "Hay datos relacionados. Desactivá la cancha para conservar las reservas.",
+        );
       store.courts = store.courts.filter((c) => c.id !== id);
     },
     async updatePlan(id, plan) {
@@ -387,6 +393,10 @@ export const mockDataAccess: DataAccess = {
       const store = getStore();
       const idx = store.reservations.findIndex((r) => r.id === id);
       if (idx === -1) throw new Error("Reserva no encontrada");
+      // Misma guarda que el adaptador Supabase (status=in.(pending,confirmed)):
+      // evita revivir una reserva cancelada si dos admins actúan a la vez.
+      if (!["pending", "confirmed"].includes(store.reservations[idx].status))
+        throw new Error("Esta reserva ya no admite cambios");
       store.reservations[idx] = {
         ...store.reservations[idx],
         status,

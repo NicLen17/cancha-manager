@@ -1,11 +1,18 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AdminLoadingRegion,
+  AdminPageHeaderSkeleton,
+  TableSkeleton,
+} from "@/components/admin/admin-skeletons";
 
 export default function AdminCanchasLoading() {
   return (
-    <div className="space-y-6">
-      <Skeleton className="h-8 w-40" />
-      <Skeleton className="h-10 w-32" />
-      <Skeleton className="h-80 rounded-xl" />
-    </div>
+    <AdminLoadingRegion label="Cargando canchas…">
+      <AdminPageHeaderSkeleton titleWidth="w-36" />
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-36 rounded-lg" />
+      </div>
+      <TableSkeleton rows={8} cols={6} />
+    </AdminLoadingRegion>
   );
 }

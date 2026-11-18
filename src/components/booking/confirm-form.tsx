@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BanknoteIcon,
@@ -98,9 +99,13 @@ export function ConfirmForm({
   const needsReceipt =
     paymentMethod === "deposit" || paymentMethod === "transfer_full";
 
-  const handleCopy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${key} copiado al portapapeles`);
+  const handleCopy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${key} copiado al portapapeles`);
+    } catch {
+      toast.error(`No pudimos copiar el ${key}. Copialo a mano.`);
+    }
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -145,14 +150,17 @@ export function ConfirmForm({
           if (value !== undefined) payload.set(key, String(value));
         payload.set("reservationId", reservationId);
         if (needsReceipt && receipt) payload.set("receipt", receipt);
-        const reservation = await completeReservationAction(payload);
-        router.push(`/reserva/${reservation.code}?wa=1`);
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "No se pudo confirmar la reserva",
-        );
+        const result = await completeReservationAction(payload);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        // Dentro de la transición: el botón queda deshabilitado hasta que
+        // carga la reserva, así no hay doble envío durante la navegación.
+        router.push(`/reserva/${result.data.code}?wa=1`);
+      } catch {
+        // Falla de red o del servidor (no un error de negocio).
+        toast.error("No pudimos enviar la reserva. Revisá tu conexión e intentá de nuevo.");
       }
     });
   };
@@ -490,7 +498,16 @@ export function ConfirmForm({
       </Field>
 
       {/* Submit Button */}
-      <div className="pt-2">
+      <div className="space-y-3 pt-2">
+        {secondsLeft === 0 ? (
+          <p role="alert" className="rounded-xl border border-amber-400/40 bg-amber-400/15 p-3 text-sm text-amber-100">
+            Se venció la reserva temporal y el turno se liberó.{" "}
+            <Link href="/reservar" className="font-semibold underline underline-offset-4">
+              Volvé a elegir un horario
+            </Link>
+            .
+          </p>
+        ) : null}
         <Button
           type="submit"
           className="h-13 w-full bg-lime-400 text-base font-bold text-navy-950 hover:bg-lime-300 shadow-xl shadow-lime-400/20 disabled:opacity-50"
@@ -498,7 +515,7 @@ export function ConfirmForm({
         >
           {isPending ? (
             <div className="flex items-center justify-center gap-2">
-              <Loader2Icon className="animate-spin size-5" />
+              <Loader2Icon aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" />
               <span>Registrando reserva…</span>
             </div>
           ) : (

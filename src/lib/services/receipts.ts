@@ -26,6 +26,9 @@ export async function saveReceipt(reservationId: string, file: File) {
     throw new Error("Elegí un comprobante JPG, PNG, WEBP o PDF válido");
   const ext = pdf ? "pdf" : png ? "png" : jpg ? "jpg" : "webp";
   const path = `${reservationId}/${crypto.randomUUID()}.${ext}`;
+  // En modo mock no hay Storage: se valida el archivo igual que en producción
+  // pero no se sube. Antes esto llamaba a Supabase y rompía el flujo de seña.
+  if (!usesSupabaseStorage()) return { path, name: file.name.slice(0, 160) };
   await supabaseRequest(`/storage/v1/object/cm-receipts/${path}`, {
     method: "POST",
     headers: { "Content-Type": mime },
@@ -33,8 +36,11 @@ export async function saveReceipt(reservationId: string, file: File) {
   });
   return { path, name: file.name.slice(0, 160) };
 }
+export function usesSupabaseStorage() {
+  return process.env.DATA_ADAPTER === "supabase";
+}
 export async function removeReceipts(paths: string[]) {
-  if (!paths.length) return;
+  if (!paths.length || !usesSupabaseStorage()) return;
   await supabaseRequest("/storage/v1/object/cm-receipts", {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },

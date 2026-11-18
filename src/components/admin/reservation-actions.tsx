@@ -1,13 +1,16 @@
 "use client";
 
 import { useOptimistic, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { Loader2Icon } from "lucide-react";
 import type { ReservationWithDetails } from "@/lib/data/types";
 import { STATUS_LABELS } from "@/lib/data/types";
 import { updateReservationStatusAction } from "@/lib/services/reservations";
 import { formatArs } from "@/lib/services/pricing";
+import { formatTimeLabel } from "@/lib/services/availability";
+import { formatVenueDate } from "@/lib/services/venue-time";
+import { ConfirmActionDialog } from "@/components/admin/confirm-action-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,48 +21,74 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type ReservationStatusActionsProps = {
-  reservation: ReservationWithDetails;
-  compact?: boolean;
-  onUpdated?: () => void;
+export type ManagedStatus = "confirmed" | "cancelled" | "pending";
+
+/** Reserva con marca de "cambio optimista en curso" para mostrar el spinner. */
+export type OptimisticReservation = ReservationWithDetails & {
+  isSaving?: boolean;
 };
 
-export function ReservationStatusActions({
-  reservation,
-  compact = false,
-  onUpdated,
-}: ReservationStatusActionsProps) {
-  const [optimisticStatus, setOptimisticStatus] = useOptimistic(
-    reservation.status,
-    (_current, next: ReservationWithDetails["status"]) => next,
-  );
-  const [pending, startTransition] = useTransition();
+const SUCCESS_COPY: Record<ManagedStatus, string> = {
+  confirmed: "Reserva confirmada",
+  cancelled: "Reserva cancelada. El turno quedó libre.",
+  pending: "Reserva marcada como pendiente",
+};
 
-  function updateStatus(status: "confirmed" | "cancelled" | "pending") {
-    if (
-      status === "cancelled" &&
-      !window.confirm("¿Cancelar esta reserva y liberar el turno?")
-    )
-      return;
+/**
+ * Estado optimista compartido para una lista de reservas.
+ *
+ * - El cambio se ve al instante en toda la fila (badge, filtros, contadores),
+ *   no solo en el botón.
+ * - Si la action falla, React descarta el estado optimista al terminar la
+ *   transición (rollback automático) y mostramos el motivo en un toast.
+ * - Si sale bien, la action hace revalidatePath y los props nuevos llegan en la
+ *   misma transición, así que no hay parpadeo al valor viejo.
+ */
+export function useReservationStatusMutations(
+  reservations: ReservationWithDetails[],
+) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [items, applyOptimistic] = useOptimistic(
+    reservations as OptimisticReservation[],
+    (list, update: { id: string; status: ManagedStatus }) =>
+      list.map((r) =>
+        r.id === update.id ? { ...r, status: update.status, isSaving: true } : r,
+      ),
+  );
+
+  function changeStatus(id: string, status: ManagedStatus) {
     startTransition(async () => {
-      setOptimisticStatus(status);
-      try {
-        await updateReservationStatusAction(reservation.id, status);
-        toast.success(
-          status === "confirmed"
-            ? "Reserva confirmada"
-            : status === "cancelled"
-              ? "Reserva cancelada"
-              : "Reserva marcada como pendiente",
-        );
-        onUpdated?.();
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "No se pudo actualizar",
-        );
+      applyOptimistic({ id, status });
+      const result = await updateReservationStatusAction({ id, status });
+      if (result.ok) {
+        toast.success(SUCCESS_COPY[status]);
+        return;
       }
+      toast.error(result.error);
+      // Si falló porque otra persona ya la cambió, el rollback mostraría el
+      // estado viejo: pedimos el estado real al servidor.
+      router.refresh();
     });
   }
+
+  return { items, changeStatus, isPending };
+}
+
+type ReservationStatusActionsProps = {
+  reservation: OptimisticReservation;
+  onChangeStatus: (id: string, status: ManagedStatus) => void;
+  compact?: boolean;
+};
+
+/** Botones Confirmar / Cancelar. Presentacional: la mutación vive en el hook. */
+export function ReservationStatusActions({
+  reservation,
+  onChangeStatus,
+  compact = false,
+}: ReservationStatusActionsProps) {
+  const { status, isSaving } = reservation;
+  const size = compact ? "sm" : "default";
 
   const receipt = reservation.receiptPath ? (
     <a
@@ -71,38 +100,63 @@ export function ReservationStatusActions({
       Ver comprobante
     </a>
   ) : null;
-  if (optimisticStatus !== "pending" && optimisticStatus !== "confirmed") {
+
+  if (status !== "pending" && status !== "confirmed") {
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {receipt}
-        <Badge variant="secondary">{STATUS_LABELS[optimisticStatus]}</Badge>
+        {isSaving ? <SavingIndicator /> : null}
+        <Badge variant="secondary">{STATUS_LABELS[status]}</Badge>
       </div>
     );
   }
 
   return (
-    <div className={compact ? "flex gap-1" : "flex flex-wrap gap-2"}>
+    <div
+      className={
+        compact
+          ? "flex items-center justify-end gap-1"
+          : "flex flex-wrap items-center gap-2"
+      }
+    >
       {receipt}
-      {optimisticStatus === "confirmed" ? (
+      {isSaving ? <SavingIndicator /> : null}
+      {status === "confirmed" ? (
         <Badge>Confirmada</Badge>
       ) : (
         <Button
-          size={compact ? "sm" : "default"}
-          disabled={pending}
-          onClick={() => updateStatus("confirmed")}
+          size={size}
+          disabled={isSaving}
+          onClick={() => onChangeStatus(reservation.id, "confirmed")}
         >
           Confirmar
         </Button>
       )}
-      <Button
-        size={compact ? "sm" : "default"}
-        variant="outline"
-        disabled={pending}
-        onClick={() => updateStatus("cancelled")}
-      >
-        Cancelar
-      </Button>
+      <ConfirmActionDialog
+        title={`¿Cancelar la reserva ${reservation.code}?`}
+        description={`El turno de ${reservation.customer.fullName} queda libre para otra persona. Avisale por WhatsApp si hace falta.`}
+        confirmLabel="Sí, cancelar"
+        cancelLabel="No, mantener"
+        onConfirm={() => onChangeStatus(reservation.id, "cancelled")}
+        trigger={
+          <Button size={size} variant="outline" disabled={isSaving}>
+            Cancelar
+          </Button>
+        }
+      />
     </div>
+  );
+}
+
+function SavingIndicator() {
+  return (
+    <span role="status" className="inline-flex items-center text-muted-foreground">
+      <Loader2Icon
+        aria-hidden="true"
+        className="size-3.5 animate-spin motion-reduce:animate-none"
+      />
+      <span className="sr-only">Guardando…</span>
+    </span>
   );
 }
 
@@ -111,49 +165,49 @@ export function PendingReservationsList({
 }: {
   reservations: ReservationWithDetails[];
 }) {
-  if (reservations.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Pendientes recientes</CardTitle>
-          <CardDescription>
-            No hay reservas pendientes de confirmación
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
+  const { items, changeStatus } = useReservationStatusMutations(reservations);
+  // Al confirmar o cancelar, la reserva sale de "pendientes" en el acto.
+  const pending = items.filter((r) => r.status === "pending");
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Pendientes recientes</CardTitle>
         <CardDescription>
-          Confirmá o cancelá reservas en espera de aprobación
+          {pending.length === 0
+            ? "No hay reservas pendientes de confirmación"
+            : "Confirmá o cancelá reservas en espera de aprobación"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {reservations.map((reservation) => (
-          <div
-            key={reservation.id}
-            className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="space-y-1">
-              <p className="font-medium">
-                {reservation.court.name} · {reservation.code}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {format(new Date(reservation.startsAt), "EEE d MMM · HH:mm", {
-                  locale: es,
-                })}{" "}
-                · {reservation.customer.fullName} ·{" "}
-                {formatArs(reservation.priceArs)}
-              </p>
+      {pending.length > 0 ? (
+        <CardContent className="space-y-3">
+          {pending.map((reservation) => (
+            <div
+              key={reservation.id}
+              className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {reservation.court.name} · {reservation.code}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  <span className="capitalize">
+                    {formatVenueDate(reservation.startsAt)}
+                  </span>{" "}
+                  · {formatTimeLabel(reservation.startsAt)} ·{" "}
+                  {reservation.customer.fullName} ·{" "}
+                  {formatArs(reservation.priceArs)}
+                </p>
+              </div>
+              <ReservationStatusActions
+                reservation={reservation}
+                onChangeStatus={changeStatus}
+                compact
+              />
             </div>
-            <ReservationStatusActions reservation={reservation} compact />
-          </div>
-        ))}
-      </CardContent>
+          ))}
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

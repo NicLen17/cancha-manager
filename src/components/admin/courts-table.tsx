@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Loader2Icon, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Court, Sport } from "@/lib/data/types";
 import { SPORT_LABELS } from "@/lib/data/types";
+import { courtInputSchema } from "@/lib/data/schemas";
 import { deleteCourt, upsertCourt } from "@/lib/services/admin-actions";
 import { formatArs } from "@/lib/services/pricing";
 import { Badge } from "@/components/ui/badge";
@@ -28,24 +29,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AdminField, AdminFormSheet } from "@/components/admin/admin-form-sheet";
+import { ConfirmActionDialog } from "@/components/admin/confirm-action-dialog";
 
-type CourtFormState = {
-  id?: string;
-  name: string;
-  sport: Sport;
-  description: string;
-  surface: Court["surface"];
-  hasLights: boolean;
-  slotDurationMinutes: number;
-  basePriceArs: number;
-  planX_m: number;
-  planY_m: number;
-  planWidthM: number;
-  planLengthM: number;
-  planRotationDeg: number;
-  sortOrder: number;
-  isActive: boolean;
-};
+type CourtFormState = Omit<Court, "id" | "venueId"> & { id?: string };
+
+type OptimisticCourt = Court & { isSaving?: boolean };
+type CourtUpdate =
+  | { type: "upsert"; court: OptimisticCourt }
+  | { type: "remove"; id: string };
 
 function emptyForm(sortOrder: number): CourtFormState {
   return {
@@ -67,23 +58,8 @@ function emptyForm(sortOrder: number): CourtFormState {
 }
 
 function courtToForm(court: Court): CourtFormState {
-  return {
-    id: court.id,
-    name: court.name,
-    sport: court.sport,
-    description: court.description,
-    surface: court.surface,
-    hasLights: court.hasLights,
-    slotDurationMinutes: court.slotDurationMinutes,
-    basePriceArs: court.basePriceArs,
-    planX_m: court.planX_m,
-    planY_m: court.planY_m,
-    planWidthM: court.planWidthM,
-    planLengthM: court.planLengthM,
-    planRotationDeg: court.planRotationDeg,
-    sortOrder: court.sortOrder,
-    isActive: court.isActive,
-  };
+  // `venueId` viaja de más pero el schema de zod descarta claves desconocidas.
+  return { ...court };
 }
 
 export function CourtsTable({ courts }: { courts: Court[] }) {
@@ -92,6 +68,18 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
     emptyForm(courts.length + 1),
   );
   const [pending, startTransition] = useTransition();
+  // Lista optimista: el alta/edición/baja se ve al instante; si la action
+  // falla, React descarta el cambio al cerrar la transición (rollback).
+  const [items, applyOptimistic] = useOptimistic(
+    courts as OptimisticCourt[],
+    (list, update: CourtUpdate) => {
+      if (update.type === "remove") return list.filter((c) => c.id !== update.id);
+      const exists = list.some((c) => c.id === update.court.id);
+      return exists
+        ? list.map((c) => (c.id === update.court.id ? update.court : c))
+        : [...list, update.court];
+    },
+  );
 
   function openCreate() {
     setForm(emptyForm(courts.length + 1));
@@ -104,30 +92,42 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
   }
 
   function save() {
+    // Validación en el cliente con el mismo schema que la action: errores al
+    // instante y sin ida y vuelta al servidor.
+    const parsed = courtInputSchema.safeParse(form);
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Revisá los datos");
+      return;
+    }
+    const isNew = !form.id;
+    setOpen(false);
     startTransition(async () => {
-      try {
-        await upsertCourt(form);
-        toast.success(form.id ? "Cancha actualizada" : "Cancha creada");
-        setOpen(false);
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al guardar",
-        );
+      applyOptimistic({
+        type: "upsert",
+        court: {
+          ...parsed.data,
+          id: form.id ?? `temp-${Date.now()}`,
+          venueId: courts[0]?.venueId ?? "",
+          isSaving: true,
+        },
+      });
+      const result = await upsertCourt(parsed.data);
+      if (result.ok) toast.success(isNew ? "Cancha creada" : "Cancha actualizada");
+      else {
+        toast.error(result.error);
+        // Reabrimos el formulario con lo cargado para no perder el trabajo.
+        setForm(form);
+        setOpen(true);
       }
     });
   }
 
-  function remove(id: string) {
-    if (!confirm("¿Eliminar esta cancha?")) return;
+  function remove(court: Court) {
     startTransition(async () => {
-      try {
-        await deleteCourt(id);
-        toast.success("Cancha eliminada");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Error al eliminar",
-        );
-      }
+      applyOptimistic({ type: "remove", id: court.id });
+      const result = await deleteCourt(court.id);
+      if (result.ok) toast.success(`${court.name} eliminada`);
+      else toast.error(result.error);
     });
   }
 
@@ -135,12 +135,12 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
     <>
       <div className="mb-4 flex justify-end">
         <Button onClick={openCreate}>
-          <Plus className="size-4" />
+          <Plus aria-hidden="true" className="size-4" />
           Nueva cancha
         </Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-x-auto rounded-xl border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -153,11 +153,28 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {courts.map((court) => (
-              <TableRow key={court.id}>
-                <TableCell className="font-medium">{court.name}</TableCell>
+            {items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-28 text-center text-sm text-muted-foreground">
+                  Todavía no cargaste canchas. Creá la primera con “Nueva cancha”.
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {items.map((court) => (
+              <TableRow key={court.id} aria-busy={court.isSaving || undefined}>
+                <TableCell className="font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    {court.name}
+                    {court.isSaving ? (
+                      <Loader2Icon
+                        aria-label="Guardando"
+                        className="size-3.5 animate-spin text-muted-foreground motion-reduce:animate-none"
+                      />
+                    ) : null}
+                  </span>
+                </TableCell>
                 <TableCell>{SPORT_LABELS[court.sport]}</TableCell>
-                <TableCell>{formatArs(court.basePriceArs)}</TableCell>
+                <TableCell className="tabular-nums">{formatArs(court.basePriceArs)}</TableCell>
                 <TableCell>{court.slotDurationMinutes} min</TableCell>
                 <TableCell>
                   <Badge variant={court.isActive ? "default" : "secondary"}>
@@ -169,19 +186,28 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
                     <Button
                       size="icon"
                       variant="ghost"
+                      disabled={court.isSaving}
                       onClick={() => openEdit(court)}
-                      aria-label="Editar"
+                      aria-label={`Editar ${court.name}`}
                     >
-                      <Pencil className="size-4" />
+                      <Pencil aria-hidden="true" className="size-4" />
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => remove(court.id)}
-                      aria-label="Eliminar"
-                    >
-                      <Trash2 className="size-4 text-destructive" />
-                    </Button>
+                    <ConfirmActionDialog
+                      title={`¿Eliminar ${court.name}?`}
+                      description="Si tiene reservas no se puede borrar: en ese caso desactivala para que no aparezca en la reserva online."
+                      confirmLabel="Eliminar cancha"
+                      onConfirm={() => remove(court)}
+                      trigger={
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={court.isSaving}
+                          aria-label={`Eliminar ${court.name}`}
+                        >
+                          <Trash2 aria-hidden="true" className="size-4 text-destructive" />
+                        </Button>
+                      }
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -194,25 +220,26 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
         open={open}
         onOpenChange={setOpen}
         title={form.id ? "Editar cancha" : "Nueva cancha"}
-        description="Datos de la cancha y posición en el plano"
+        description="Datos de la cancha. La posición se ajusta en Mapa."
         footer={
           <Button onClick={save} disabled={pending} className="h-11 w-full">
             Guardar
           </Button>
         }
       >
-        <AdminField label="Nombre">
+        <AdminField label="Nombre" htmlFor="court-name">
           <Input
+            id="court-name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </AdminField>
-        <AdminField label="Deporte">
+        <AdminField label="Deporte" htmlFor="court-sport">
           <Select
             value={form.sport}
             onValueChange={(v) => setForm({ ...form, sport: v as Sport })}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger id="court-sport" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -224,34 +251,38 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
             </SelectContent>
           </Select>
         </AdminField>
-        <AdminField label="Descripción">
+        <AdminField label="Descripción" htmlFor="court-description">
           <Textarea
+            id="court-description"
             value={form.description}
-            onChange={(e) =>
-              setForm({ ...form, description: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="min-h-24"
           />
         </AdminField>
         <div className="grid grid-cols-2 gap-4">
-          <AdminField label="Precio base">
+          <AdminField label="Precio base" htmlFor="court-price">
             <Input
+              id="court-price"
               type="number"
+              inputMode="numeric"
+              min={0}
               value={form.basePriceArs}
               onChange={(e) =>
-                setForm({ ...form, basePriceArs: Number(e.target.value) })
+                setForm({ ...form, basePriceArs: e.target.valueAsNumber })
               }
             />
           </AdminField>
-          <AdminField label="Duración (min)">
+          <AdminField label="Duración (min)" htmlFor="court-duration">
             <Input
+              id="court-duration"
               type="number"
+              inputMode="numeric"
+              min={15}
+              max={240}
+              step={15}
               value={form.slotDurationMinutes}
               onChange={(e) =>
-                setForm({
-                  ...form,
-                  slotDurationMinutes: Number(e.target.value),
-                })
+                setForm({ ...form, slotDurationMinutes: e.target.valueAsNumber })
               }
             />
           </AdminField>
@@ -260,18 +291,14 @@ export function CourtsTable({ courts }: { courts: Court[] }) {
           <label className="flex cursor-pointer items-center gap-3 text-sm transition-colors hover:text-foreground">
             <Checkbox
               checked={form.isActive}
-              onCheckedChange={(v) =>
-                setForm({ ...form, isActive: v === true })
-              }
+              onCheckedChange={(v) => setForm({ ...form, isActive: v === true })}
             />
             Cancha activa
           </label>
           <label className="flex cursor-pointer items-center gap-3 text-sm transition-colors hover:text-foreground">
             <Checkbox
               checked={form.hasLights}
-              onCheckedChange={(v) =>
-                setForm({ ...form, hasLights: v === true })
-              }
+              onCheckedChange={(v) => setForm({ ...form, hasLights: v === true })}
             />
             Iluminación
           </label>
