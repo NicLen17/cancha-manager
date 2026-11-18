@@ -1,9 +1,10 @@
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { CourtsTable } from "@/components/admin/courts-table";
 
 export default async function AdminCanchasPage() {
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const courts = await db.courts.listByVenue(venue.id);
 
   return (

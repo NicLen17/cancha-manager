@@ -1,4 +1,5 @@
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import {
   ClosuresManager,
   HoursEditor,
@@ -6,7 +7,7 @@ import {
 
 export default async function AdminHorariosPage() {
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const [hours, closures, courts] = await Promise.all([
     db.venues.listVenueHours(venue.id),
     db.closures.listByVenue(venue.id),

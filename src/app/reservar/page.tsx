@@ -6,8 +6,8 @@ import {
   parseSportParam,
   parseViewParam,
 } from "@/lib/services/booking-helpers";
-import { getAvailabilityForDate } from "@/lib/services/reservations";
-import { parseDateInput, toDateInputValue } from "@/lib/utils";
+import { getAvailabilityForDate } from "@/lib/services/availability-query";
+import { venueDateKey, venueNoon } from "@/lib/services/venue-time";
 
 export const metadata: Metadata = {
   title: "Reservar",
@@ -15,14 +15,22 @@ export const metadata: Metadata = {
     "Elegí fecha, deporte y horario para reservar tu cancha en Cancha Manager.",
 };
 
+const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/;
+
 export default async function ReservarPage({
   searchParams,
 }: PageProps<"/reservar">) {
   const params = await searchParams;
+  const today = venueDateKey(new Date());
+  // Fecha inválida o pasada → hoy (antes `?fecha=basura` tiraba el error.tsx).
   const fecha =
-    typeof params.fecha === "string" && params.fecha
+    typeof params.fecha === "string" &&
+    DATE_PARAM.test(params.fecha) &&
+    Number.isFinite(venueNoon(params.fecha).getTime()) &&
+    venueDateKey(venueNoon(params.fecha)) === params.fecha &&
+    params.fecha >= today
       ? params.fecha
-      : toDateInputValue(new Date());
+      : today;
   const deporte = parseSportParam(
     typeof params.deporte === "string" ? params.deporte : undefined,
   );
@@ -34,7 +42,7 @@ export default async function ReservarPage({
       ? params.cancha
       : undefined;
 
-  const date = parseDateInput(fecha);
+  const date = venueNoon(fecha);
   const availability = await getAvailabilityForDate(date.toISOString());
 
   let hora =

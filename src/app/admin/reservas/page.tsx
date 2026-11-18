@@ -1,4 +1,5 @@
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { ReservationsManager } from "@/components/admin/reservations-manager";
 import { STATUS_LABELS } from "@/lib/data/types";
 
@@ -10,7 +11,7 @@ export default async function AdminReservasPage({
   const defaultStatus = typeof params.status === "string" && params.status in STATUS_LABELS ? params.status : "all";
 
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const [reservations, courts] = await Promise.all([
     db.reservations.listByVenue(venue.id),
     db.courts.listByVenue(venue.id),
@@ -25,6 +26,9 @@ export default async function AdminReservasPage({
         </p>
       </div>
       <ReservationsManager
+        // Remonta al cambiar ?tab= o ?status= (p. ej. link "Agenda" del sidebar
+        // estando ya en Reservas): los filtros son estado inicial del cliente.
+        key={`${defaultTab}-${defaultStatus}`}
         reservations={reservations}
         courts={courts}
         defaultTab={defaultTab}

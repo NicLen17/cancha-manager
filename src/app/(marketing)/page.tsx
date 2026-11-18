@@ -1,349 +1,530 @@
-import Link from "next/link";
-import {
-  ArrowDownIcon,
-  ArrowUpRightIcon,
-  CheckIcon,
-  CheckCheckIcon,
-  CalendarDaysIcon,
-  GlobeIcon,
-  LayoutDashboardIcon,
-  MessageCircleIcon,
-  PlusIcon,
-} from "lucide-react";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { ArrowUpRightIcon, PlusIcon } from "lucide-react";
 import { BRAND } from "@/lib/brand";
+import { DemoLink } from "@/components/marketing/demo-link";
+import { PlayerMock, VenueMock } from "@/components/marketing/flow-mocks";
+import {
+  FlowVideo,
+  type FlowVideoSources,
+} from "@/components/marketing/flow-video";
+import { HeroTurnero } from "@/components/marketing/hero-turnero";
+import { MarkO, MarkX, PitchLines } from "@/components/marketing/pitch";
 
-const features = [
+/**
+ * Los videos los entrega otra tarea en public/videos. Se resuelve en el
+ * servidor qué archivos existen: si faltan, no se pide nada por red y queda
+ * la maqueta de respaldo dentro del mismo marco.
+ */
+function videoSources(name: string): FlowVideoSources {
+  const has = (ext: string) =>
+    existsSync(join(process.cwd(), "public", "videos", `${name}.${ext}`));
+  return {
+    webm: has("webm") ? `/videos/${name}.webm` : undefined,
+    mp4: has("mp4") ? `/videos/${name}.mp4` : undefined,
+    poster: has("jpg") ? `/videos/${name}.jpg` : undefined,
+  };
+}
+
+const TAPE = [
+  "Fútbol 5",
+  "Fútbol 7",
+  "Fútbol 9",
+  "Fútbol 11",
+  "Pádel",
+  "Handball",
+  "Futsal",
+];
+
+const VERSUS = [
   {
-    number: "01",
-    icon: GlobeIcon,
-    title: "Una web que juega para vos.",
-    text: "La identidad de tu complejo, tus canchas y un camino directo para reservar. Un enlace para compartir donde están tus jugadores.",
-    detail: "Landing personalizada",
+    topic: "Los turnos",
+    now: "Contestar “¿tenés a las 21?” mensaje por mensaje, a cualquier hora.",
+    after:
+      "El jugador ve qué está libre y cuánto sale, y reserva solo desde el celular. Sin cuenta y sin bajar una app.",
   },
   {
-    number: "02",
-    icon: CalendarDaysIcon,
-    title: "Del ‘¿hay turno?’ al ‘nos vemos’.",
-    text: "El jugador ve horarios y precios, elige cancha y deja sus datos sin crear una cuenta. El turno se bloquea mientras completa la reserva.",
-    detail: "Reservas sin vueltas",
+    topic: "La seña",
+    now: "Buscar la captura de la transferencia entre los chats del día.",
+    after:
+      "El comprobante se sube dentro de la reserva. Lo abrís al lado del turno y confirmás.",
   },
   {
-    number: "03",
-    icon: LayoutDashboardIcon,
-    title: "Tu día, bajo control.",
-    text: "Revisá reservas y comprobantes, confirmá turnos y ajustá horarios o precios. Tu operación reunida en una agenda clara.",
-    detail: "Administración centralizada",
+    topic: "La agenda",
+    now: "El mismo turno prometido a dos equipos.",
+    after:
+      "El turno queda retenido 15 minutos mientras se completa la reserva. Dos reservas no pueden ocupar el mismo horario.",
   },
 ];
-function ProductScene() {
+
+const PLAYER_STEPS = [
+  {
+    title: "Elige día y deporte",
+    text: "Entra a la web de tu complejo desde el celular. No crea una cuenta.",
+  },
+  {
+    title: "Elige horario y cancha",
+    text: "En el plano de tu predio o en una lista, con el precio a la vista.",
+  },
+  {
+    title: "Deja sus datos y el comprobante",
+    text: "Efectivo, seña o transferencia. Si transfiere, adjunta el comprobante ahí mismo.",
+  },
+  {
+    title: "Se lleva su código",
+    text: "Con el estado de la reserva y un resumen listo para mandar por WhatsApp.",
+  },
+];
+
+const VENUE_STEPS = [
+  {
+    title: "Entra como pendiente",
+    text: "Las reservas nuevas aparecen primero. La lista se actualiza sola.",
+  },
+  {
+    title: "Mirás el comprobante",
+    text: "Está al lado de la reserva. Lo revisás contra tu cuenta.",
+  },
+  {
+    title: "Confirmás o cancelás",
+    text: "El jugador ve el estado actualizado con su código.",
+  },
+];
+
+const BOARD = [
+  {
+    title: "Reservas",
+    text: "Las pendientes primero, con contacto y agenda del día.",
+  },
+  {
+    title: "Comprobantes",
+    text: "Cada archivo junto a su reserva, para revisar y confirmar.",
+  },
+  {
+    title: "Plano",
+    text: "Dibujás tu predio: medidas, posición y tamaño de cada cancha.",
+  },
+  {
+    title: "Horarios",
+    text: "Horario semanal y cierres por torneo o mantenimiento.",
+  },
+  {
+    title: "Precios",
+    text: "Precio base por cancha y reglas por franja horaria o por día.",
+  },
+  {
+    title: "Canchas",
+    text: "Alta, edición y baja de las canchas de tu complejo.",
+  },
+];
+
+const DOES = [
+  {
+    title: "Es tu web, no un marketplace.",
+    text: "Tus jugadores reservan en tu página, no en una app donde también aparece el complejo de enfrente.",
+  },
+  {
+    title: "La seña por transferencia, de punta a punta.",
+    text: "El jugador ve el alias, transfiere y adjunta el comprobante. Vos lo confirmás en el panel.",
+  },
+  {
+    title: "La cancha se elige en el plano de tu predio.",
+    text: "Tus canchas dibujadas a escala, con su disponibilidad. También hay vista de lista.",
+  },
+  {
+    title: "WhatsApp sigue en el equipo.",
+    text: "La reserva termina con un mensaje armado que el jugador decide enviar. Ya llega con horario y cancha.",
+  },
+];
+
+const DOES_NOT = [
+  "No cobra online. Funciona con efectivo, seña o transferencia.",
+  "No verifica transferencias. La reserva queda pendiente hasta que vos la confirmás.",
+  "No manda mensajes automáticos. El WhatsApp lo envía el jugador.",
+];
+
+const FAQ = [
+  {
+    q: "Ya estoy en un marketplace de canchas. ¿Para qué quiero esto?",
+    a: "Podés seguir ahí. Esto es tu propia web: el jugador que te busca a vos reserva con tu nombre, sin ver otros complejos al lado.",
+  },
+  {
+    q: "Mis clientes reservan por WhatsApp. ¿Los pierdo?",
+    a: "No. La reserva termina con un mensaje listo para WhatsApp. Lo que cambia es que ya llega con horario, cancha y comprobante.",
+  },
+  {
+    q: "¿Y si el comprobante es falso?",
+    a: "El sistema no da el pago por hecho. La reserva queda pendiente hasta que la revisás contra tu cuenta y la confirmás.",
+  },
+  {
+    q: "No tengo tiempo de configurar nada.",
+    a: "El plano, las canchas, los horarios y los precios se preparan con vos como parte de la propuesta. Después, el día a día es revisar y confirmar.",
+  },
+  {
+    q: "¿Cuánto sale?",
+    a: "Depende de cuántas canchas tenés y qué necesitás. Lo cotizamos después de ver tu complejo.",
+  },
+  {
+    q: "¿Hay complejos que ya lo usan?",
+    a: "Todavía no mostramos clientes. Lo que ves es una demo con un complejo ficticio, y la podés probar entera.",
+  },
+];
+
+function TapeSet({ hidden = false }: { hidden?: boolean }) {
   return (
-    <div
-      className="cm-scene cm-enter"
-      aria-label="Ilustración del sistema: una reserva pasa de la web a la agenda. Datos de ejemplo."
-    >
-      <div className="cm-scene-top">
-        <span className="flex items-center gap-2">
-          <span className="cm-live-dot" /> TU COMPLEJO, CONECTADO
+    <div className="lp-tape-set" aria-hidden={hidden || undefined}>
+      {TAPE.map((item, i) => (
+        <span key={item} className="contents">
+          <span>{item}</span>
+          {i % 2 === 0 ? <MarkX /> : <MarkO />}
         </span>
-        <span>VISTA DE EJEMPLO</span>
-      </div>
-      <div className="cm-pitch" aria-hidden="true">
-        <div className="cm-pitch-line cm-pitch-mid" />
-        <div className="cm-pitch-circle" />
-        <div className="cm-pitch-goal cm-pitch-goal-left" />
-        <div className="cm-pitch-goal cm-pitch-goal-right" />
-        <span className="cm-pitch-number">CM / 01</span>
-      </div>
-      <div className="cm-agenda">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className="cm-eyebrow">ADMINISTRACIÓN</span>
-            <p className="mt-1 text-xl font-semibold tracking-tight">
-              La agenda de tu cancha.
-            </p>
-          </div>
-          <span className="cm-date-chip">HOY</span>
-        </div>
-        <div className="cm-agenda-cols">
-          <span>HORARIO</span>
-          <span>FÚTBOL 5</span>
-          <span>PÁDEL</span>
-        </div>
-        {[
-          { hour: "18:00", a: "Disponible", b: "Confirmada", type: "open" },
-          { hour: "19:00", a: "Nueva reserva", b: "Disponible", type: "new" },
-          { hour: "20:00", a: "Confirmada", b: "Disponible", type: "booked" },
-        ].map((row) => (
-          <div className="cm-agenda-row" key={row.hour}>
-            <span className="font-mono text-xs">{row.hour}</span>
-            <span className={`cm-slot cm-slot-${row.type}`}>
-              {row.type === "new" && <span className="cm-live-dot" />}
-              {row.a}
-            </span>
-            <span className="cm-slot cm-slot-soft">{row.b}</span>
-          </div>
-        ))}
-        <div className="mt-5 flex items-center gap-2 text-xs text-[#42664f]">
-          <CheckCheckIcon aria-hidden="true" className="size-4" /> Lo que
-          reserva tu jugador, aparece acá.
-        </div>
-      </div>
-      <div className="cm-booking-note">
-        <div className="cm-note-icon">
-          <MessageCircleIcon aria-hidden="true" className="size-5" />
-        </div>
-        <div>
-          <strong>Listo para el próximo partido.</strong>
-          <p>Reserva registrada · Resumen para WhatsApp</p>
-        </div>
-        <CheckIcon aria-hidden="true" className="size-4 text-[#16713d]" />
-      </div>
-      <div className="cm-scene-label">
-        <span>WEB</span>
-        <span aria-hidden="true">↗</span>
-        <span>RESERVA</span>
-        <span aria-hidden="true">↗</span>
-        <span>GESTIÓN</span>
-      </div>
+      ))}
     </div>
   );
 }
-export default function HomePage() {
+
+function ContactLink({
+  className,
+  children,
+}: {
+  className: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="cm-marketing">
-      <section className="cm-hero cm-container">
-        <div className="cm-hero-copy">
-          <div className="cm-eyebrow cm-enter">
-            <span className="cm-live-dot" /> EL SISTEMA PARA TU COMPLEJO
-            DEPORTIVO
-          </div>
-          <h1 className="cm-hero-title cm-enter">
-            Más cancha.
-            <br />
-            <span>Menos vueltas.</span>
+    <a
+      className={`lp-btn ${className}`}
+      href={BRAND.contact}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+      <ArrowUpRightIcon aria-hidden="true" />
+    </a>
+  );
+}
+
+export default function HomePage() {
+  const playerVideo = videoSources("reserva-flujo");
+  const venueVideo = videoSources("admin-flujo");
+
+  return (
+    <>
+      <section className="lp-hero">
+        <div className="lp-hero-bg" aria-hidden="true" />
+        <PitchLines className="lp-hero-pitch" />
+        <div className="lp-wrap">
+          <h1 className="lp-display lp-hero-title">
+            <span className="lp-line">
+              <span>¿Tenés</span>
+            </span>
+            <span className="lp-line">
+              <span className="lp-accent">a las 21?</span>
+            </span>
           </h1>
-          <p className="cm-hero-description cm-enter">
-            Tu propia web, reservas online y toda la gestión de tu complejo.{" "}
-            <strong>Vos ocupate de que se juegue.</strong>
-          </p>
-          <div className="cm-hero-actions cm-enter">
-            <Link
-              href="/demo"
-              className="cm-button cm-button-dark cm-button-lg"
-            >
-              Probar el recorrido
-              <ArrowUpRightIcon aria-hidden="true" className="size-5" />
-            </Link>
-            <a
-              href={BRAND.contact}
-              target="_blank"
-              rel="noreferrer"
-              className="cm-text-link"
-            >
-              Hablemos de tu complejo
-              <ArrowUpRightIcon aria-hidden="true" className="size-4" />
-            </a>
+          <div className="lp-hero-grid">
+            <div className="lp-hero-copy">
+              <p className="lp-hero-answer">Que lo responda tu web.</p>
+              <p className="lp-lede">
+                Cancha Manager le da a tu complejo su propia página de
+                reservas. El jugador elige día, horario y cancha, y sube el
+                comprobante. Vos lo revisás y confirmás desde el panel.
+              </p>
+              <div className="lp-actions">
+                <ContactLink className="lp-btn-cone lp-btn-lg">
+                  Solicitar demo
+                </ContactLink>
+                <DemoLink className="lp-btn-line lp-btn-lg">
+                  Probar demo
+                </DemoLink>
+              </div>
+              <p className="lp-fine">
+                La demo es un complejo ficticio, con datos y precios de
+                ejemplo.
+              </p>
+            </div>
+            <div className="lp-hero-sim">
+              <HeroTurnero />
+            </div>
           </div>
-          <p className="cm-hero-footnote">
-            <span className="flex items-center gap-2">
-              <CheckIcon aria-hidden="true" className="size-4" />
-              Sin cuenta para reservar
-            </span>
-            <span className="flex items-center gap-2">
-              <CheckIcon aria-hidden="true" className="size-4" />
-              Con tu identidad
-            </span>
-          </p>
         </div>
-        <ProductScene />
-        <a href="#producto" className="cm-scroll-cue">
-          <ArrowDownIcon aria-hidden="true" className="size-4" /> ASÍ JUEGA
-          CANCHA MANAGER
-        </a>
       </section>
-      <div className="cm-offer-strip">
-        <div className="cm-container">
-          <span>UN SOLO EQUIPO.</span>
-          <p>
-            Tu landing <PlusIcon aria-hidden="true" /> Tus reservas{" "}
-            <PlusIcon aria-hidden="true" /> Tu administración
-          </p>
-          <span>FÚTBOL · PÁDEL · TU COMPLEJO</span>
+
+      <div className="lp-tape">
+        <p className="sr-only">
+          Canchas del complejo de demo: {TAPE.join(", ")}.
+        </p>
+        <div className="lp-tape-track" aria-hidden="true">
+          <TapeSet />
+          <TapeSet hidden />
         </div>
       </div>
-      <section id="producto" className="cm-container cm-section">
-        <div className="cm-section-heading">
-          <div>
-            <p className="cm-eyebrow">TODO LO QUE PASA FUERA DE LA CANCHA</p>
-            <h2>
-              Que gestionar sea
-              <br />
-              <span className="cm-muted-green">la parte fácil.</span>
+
+      <section id="producto" className="lp-section lp-tone-paper">
+        <div className="lp-wrap">
+          <div className="lp-head">
+            <h2 className="lp-display lp-h2">
+              <span className="lp-line">
+                <span>El chat no es</span>
+              </span>
+              <span className="lp-line">
+                <span className="lp-accent">una agenda.</span>
+              </span>
             </h2>
-          </div>
-          <p>
-            Menos conversaciones para encontrar un turno. Más claridad para el
-            jugador y para quien abre el complejo todos los días.
-          </p>
-        </div>
-        <div className="cm-feature-grid">
-          {features.map(({ number, icon: Icon, title, text, detail }) => (
-            <article className="cm-feature" key={number}>
-              <div className="flex items-center justify-between">
-                <span className="cm-eyebrow">
-                  {number} / {detail}
-                </span>
-                <Icon aria-hidden="true" className="size-6" />
-              </div>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-      <section id="como-funciona" className="cm-flow-section">
-        <div className="cm-container cm-section">
-          <div className="cm-section-heading">
-            <div>
-              <p className="cm-eyebrow">
-                DE LA PRIMERA VISITA AL PRÓXIMO PARTIDO
-              </p>
-              <h2>
-                Un recorrido.
-                <br />
-                Todo conectado.
-              </h2>
-            </div>
-            <Link href="/demo" className="cm-button cm-button-light">
-              Verlo en acción
-              <ArrowUpRightIcon aria-hidden="true" className="size-4" />
-            </Link>
-          </div>
-          <ol className="cm-flow-grid">
-            {[
-              {
-                title: "Conoce tu complejo",
-                text: "Entra a tu web y descubre tus canchas.",
-              },
-              {
-                title: "Encuentra su turno",
-                text: "Elige deporte, día, horario y cancha.",
-              },
-              {
-                title: "Deja la reserva",
-                text: "Completa sus datos y prepara el resumen para WhatsApp.",
-              },
-              {
-                title: "Vos la gestionás",
-                text: "La reserva aparece en tu panel. Revisás y confirmás.",
-              },
-            ].map((step, i) => (
-              <li key={step.title}>
-                <span className="cm-flow-number">0{i + 1}</span>
-                <h3>{step.title}</h3>
-                <p>{step.text}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="cm-flow-bottom">
-            <p>
-              WhatsApp sigue en el equipo. La información queda ordenada en el
-              sistema.
+            <p className="lp-lede">
+              Los turnos, las señas y los horarios hoy viven en conversaciones.
+              Cancha Manager los pone en un solo lugar, con el nombre de tu
+              complejo.
             </p>
-            <MessageCircleIcon aria-hidden="true" className="size-6" />
+          </div>
+          <div className="lp-versus">
+            {VERSUS.map((row) => (
+              <div className="lp-versus-row lp-reveal" key={row.topic}>
+                <h3 className="lp-versus-topic">{row.topic}</h3>
+                <div className="lp-versus-now">
+                  <span className="lp-versus-tag">Hoy</span>
+                  <p>{row.now}</p>
+                </div>
+                <div className="lp-versus-with">
+                  <span className="lp-versus-tag">Con Cancha Manager</span>
+                  <p>{row.after}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
-      <section className="cm-container cm-section cm-demo-invite">
-        <div className="cm-demo-stamp" aria-hidden="true">
-          <span>
-            PROBÁ
-            <br />
-            LA JUGADA.
-          </span>
-          <ArrowUpRightIcon className="size-12" />
+
+      <section id="flujo" className="lp-section lp-tone-night2">
+        <div className="lp-wrap">
+          <div className="lp-head">
+            <h2 className="lp-display lp-h2">
+              <span className="lp-line">
+                <span>Dos pantallas.</span>
+              </span>
+              <span className="lp-line">
+                <span className="lp-accent">Un mismo turno.</span>
+              </span>
+            </h2>
+            <p className="lp-lede" style={{ color: "var(--lp-dim)" }}>
+              Lo que el jugador reserva desde el celular es lo que vos ves en
+              el panel. El recorrido completo, sin cortes.
+            </p>
+          </div>
+
+          <div className="lp-flow lp-flow-player">
+            <div className="lp-flow-media">
+              <FlowVideo
+                kind="phone"
+                sources={playerVideo}
+                label="Video: un jugador reserva una cancha desde el celular."
+              >
+                <PlayerMock />
+              </FlowVideo>
+              <p className="lp-device-note">
+                Complejo de demostración. Datos y precios ficticios.
+              </p>
+            </div>
+            <div>
+              <p className="lp-kicker">Desde el celular</p>
+              <h3 className="lp-display lp-flow-title">
+                <span className="lp-line">
+                  <span>Así reserva un jugador.</span>
+                </span>
+              </h3>
+              <ol className="lp-steps">
+                {PLAYER_STEPS.map((step) => (
+                  <li key={step.title}>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <span>{step.text}</span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+
+          <div className="lp-flow lp-flow-venue">
+            <div>
+              <p className="lp-kicker">Desde el panel</p>
+              <h3 className="lp-display lp-flow-title">
+                <span className="lp-line">
+                  <span>Así la confirmás vos.</span>
+                </span>
+              </h3>
+              <ol className="lp-steps">
+                {VENUE_STEPS.map((step) => (
+                  <li key={step.title}>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <span>{step.text}</span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div className="lp-flow-media">
+              <FlowVideo
+                kind="desktop"
+                sources={venueVideo}
+                label="Video: el complejo revisa el comprobante y confirma la reserva desde el panel."
+              >
+                <VenueMock />
+              </FlowVideo>
+              <p className="lp-device-note">
+                Complejo de demostración. Datos y precios ficticios.
+              </p>
+            </div>
+          </div>
+
+          <div className="lp-flow-cta lp-reveal">
+            <div>
+              <p className="lp-display lp-flow-cta-title">
+                Mejor que mirarlo: reservá una cancha.
+              </p>
+              <p className="lp-flow-cta-text">
+                La demo está abierta. Elegí un turno en el complejo ficticio y
+                completá la reserva, sin pagar nada.
+              </p>
+            </div>
+            <DemoLink className="lp-btn-cone lp-btn-lg">Probar demo</DemoLink>
+          </div>
         </div>
-        <div>
-          <p className="cm-eyebrow">UN COMPLEJO FICTICIO. EL RECORRIDO REAL.</p>
-          <h2>
-            Antes de imaginarlo,
-            <br />
-            reservá una cancha.
+      </section>
+
+      <section id="panel" className="lp-section lp-tone-turf">
+        <div className="lp-wrap">
+          <div className="lp-head">
+            <h2 className="lp-display lp-h2">
+              <span className="lp-line">
+                <span>Tu complejo,</span>
+              </span>
+              <span className="lp-line">
+                <span className="lp-accent">en el pizarrón.</span>
+              </span>
+            </h2>
+            <p className="lp-lede">
+              Un panel privado para manejar el día: qué entró, qué falta
+              confirmar, cuándo abrís y cuánto sale cada turno.
+            </p>
+          </div>
+          <div className="lp-board lp-reveal">
+            {BOARD.map((zone, i) => (
+              <article className="lp-board-zone" key={zone.title}>
+                {i % 2 === 0 ? (
+                  <MarkO className="lp-board-mark" />
+                ) : (
+                  <MarkX className="lp-board-mark" />
+                )}
+                <div>
+                  <h3 className="lp-display">{zone.title}</h3>
+                  <p className="mt-2">{zone.text}</p>
+                </div>
+              </article>
+            ))}
+            <span className="lp-board-circle" aria-hidden="true" />
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-section lp-tone-paper">
+        <div className="lp-wrap">
+          <div className="lp-head">
+            <h2 className="lp-display lp-h2">
+              <span className="lp-line">
+                <span>Tu complejo</span>
+              </span>
+              <span className="lp-line">
+                <span className="lp-accent">juega de local.</span>
+              </span>
+            </h2>
+            <p className="lp-lede">
+              Qué hace distinto Cancha Manager y, para que no haya sorpresas,
+              qué no hace todavía.
+            </p>
+          </div>
+          <div className="lp-ledger">
+            <div className="lp-ledger-yes">
+              <h3 className="lp-display">Lo que hace</h3>
+              <ul>
+                {DOES.map((item) => (
+                  <li key={item.title}>
+                    <MarkO />
+                    <span>
+                      <strong className="block font-bold">{item.title}</strong>
+                      {item.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="lp-ledger-no">
+              <h3 className="lp-display">Lo que no hace hoy</h3>
+              <ul>
+                {DOES_NOT.map((item) => (
+                  <li key={item}>
+                    <MarkX />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="preguntas" className="lp-section">
+        <div className="lp-wrap lp-faq">
+          <div>
+            <h2 className="lp-display lp-h2">
+              <span className="lp-line">
+                <span>Antes del</span>
+              </span>
+              <span className="lp-line">
+                <span className="lp-accent">pitazo.</span>
+              </span>
+            </h2>
+            <p className="lp-lede mt-5" style={{ color: "var(--lp-dim)" }}>
+              Lo que nos preguntan los dueños de complejos cuando ven la demo.
+            </p>
+          </div>
+          <div>
+            {FAQ.map((item) => (
+              <details key={item.q}>
+                <summary>
+                  {item.q}
+                  <PlusIcon aria-hidden="true" />
+                </summary>
+                <p>{item.a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-closing">
+        <span className="lp-closing-circle" aria-hidden="true" />
+        <div className="lp-wrap">
+          <h2 className="lp-display">
+            <span className="lp-line">
+              <span>¿Armamos</span>
+            </span>
+            <span className="lp-line">
+              <span className="lp-accent">el tuyo?</span>
+            </span>
           </h2>
-          <p className="mt-5 max-w-lg text-[#526359]">
-            Recorré la web de ejemplo y completá una reserva. En una
-            demostración guiada te mostramos cómo llega a administración y cómo
-            se confirma.
+          <p className="lp-lede">
+            Contanos cuántas canchas tenés y cómo manejás hoy las reservas.
+            Preparamos una propuesta para tu complejo.
           </p>
-          <Link className="cm-button cm-button-dark mt-7" href="/demo">
-            Entrar al complejo de demo
-            <ArrowUpRightIcon aria-hidden="true" className="size-4" />
-          </Link>
-          <p className="mt-3 text-xs text-[#526359]">
-            La demo utiliza datos ficticios. No requiere pagos reales.
-          </p>
+          <div className="lp-actions">
+            <ContactLink className="lp-btn-cone lp-btn-lg">
+              Solicitar demo por WhatsApp
+            </ContactLink>
+            <DemoLink className="lp-btn-line lp-btn-lg">Probar demo</DemoLink>
+          </div>
         </div>
       </section>
-      <section id="preguntas" className="cm-container cm-section cm-faq">
-        <div>
-          <p className="cm-eyebrow">ANTES DEL SILBATAZO</p>
-          <h2>Lo que querés saber.</h2>
-        </div>
-        <div>
-          {[
-            {
-              q: "¿Qué incluye Cancha Manager?",
-              a: "La landing personalizada de tu complejo, el recorrido de reservas y el panel para administrar canchas, turnos, horarios y precios. Definimos la propuesta según tu operación en una demo.",
-            },
-            {
-              q: "¿Mis jugadores necesitan crearse una cuenta?",
-              a: "No. Eligen el turno y completan sus datos de contacto. Reciben un código para volver a consultar su reserva.",
-            },
-            {
-              q: "¿WhatsApp envía mensajes automáticamente?",
-              a: "El jugador abre WhatsApp con un resumen preparado y decide enviarlo. La reserva ya queda registrada aunque no envíe el mensaje.",
-            },
-            {
-              q: "¿El sistema cobra o verifica transferencias?",
-              a: "La confirmación la realiza el administrador. Puede revisar el comprobante aportado por el jugador. No hay cobro integrado ni verificación bancaria automática.",
-            },
-            {
-              q: "¿Podemos adaptarlo a mi complejo?",
-              a: "Sí. Revisamos tus canchas, deportes, horarios, precios e identidad para preparar una propuesta. Escribinos y coordinamos una demostración.",
-            },
-          ].map((item) => (
-            <details key={item.q}>
-              <summary>
-                {item.q}
-                <PlusIcon aria-hidden="true" className="size-4 shrink-0" />
-              </summary>
-              <p>{item.a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-      <section className="cm-closing">
-        <div className="cm-container">
-          <p className="cm-eyebrow">TU COMPLEJO TIENE EQUIPO.</p>
-          <h2>
-            Ahora, que tenga
-            <br />
-            su propio sistema.
-          </h2>
-          <a
-            className="cm-button cm-button-light cm-button-lg"
-            href={BRAND.contact}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Solicitar una demo
-            <ArrowUpRightIcon aria-hidden="true" className="size-5" />
-          </a>
-          <span className="cm-closing-mark" aria-hidden="true">
-            CM
-          </span>
-        </div>
-      </section>
-    </div>
+    </>
   );
 }

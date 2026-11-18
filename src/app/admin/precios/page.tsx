@@ -1,9 +1,10 @@
 import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 import { PriceRulesManager } from "@/components/admin/price-rules-manager";
 
 export default async function AdminPreciosPage() {
   const db = getDataAccess();
-  const venue = await db.venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
   const [rules, courts, hours, closures] = await Promise.all([
     db.priceRules.listByVenue(venue.id),
     db.courts.listByVenue(venue.id),

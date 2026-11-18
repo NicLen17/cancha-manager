@@ -6,7 +6,7 @@ import {
 } from "@/components/layout/diagonal-section";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
-import { getDataAccess } from "@/lib/data";
+import { getDefaultVenue } from "@/lib/data/queries";
 
 export const metadata: Metadata = {
   title: "Mis reservas",
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function MisReservasPage() {
-  const venue = await getDataAccess().venues.getDefaultVenue();
+  const venue = await getDefaultVenue();
 
   return (
     <>

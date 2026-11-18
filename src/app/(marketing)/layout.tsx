@@ -1,17 +1,18 @@
-import { SiteFooter } from "@/components/layout/site-footer";
-import { SiteHeader } from "@/components/layout/site-header";
+import { MarketingFooter } from "@/components/marketing/marketing-footer";
+import { MarketingHeader } from "@/components/marketing/marketing-header";
+
 export default function MarketingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <>
-      <SiteHeader marketing />
+    <div className="lp">
+      <MarketingHeader />
       <main id="contenido" className="flex-1">
         {children}
       </main>
-      <SiteFooter marketing />
-    </>
+      <MarketingFooter />
+    </div>
   );
 }

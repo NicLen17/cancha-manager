@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarDaysIcon,
@@ -40,7 +41,11 @@ import {
 } from "@/lib/services/booking-helpers";
 import { formatArs } from "@/lib/services/pricing";
 import { createHoldAction } from "@/lib/services/reservations";
-import { venueDateKey } from "@/lib/services/venue-time";
+import {
+  formatVenueDate,
+  venueDateKey,
+  venueNoon,
+} from "@/lib/services/venue-time";
 import { cn } from "@/lib/utils";
 
 type BookingBoardProps = {
@@ -54,30 +59,27 @@ type BookingBoardProps = {
   initialVista: BookingView;
 };
 
-// Generates next 7 days for the fast date carousel
+// Próximos 7 días para el carrusel. Todo en la zona del complejo: con la zona
+// del navegador/servidor el número de día y el nombre podían no coincidir
+// entre SSR y cliente (error de hidratación) o correrse de día.
 function getNextSevenDays() {
   const days = [];
-  const today = new Date(`${venueDateKey(new Date())}T12:00:00-03:00`);
+  const today = venueNoon(venueDateKey(new Date()));
   for (let i = 0; i < 7; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
+    const d = new Date(today.getTime() + i * 86_400_000);
     const isoDate = venueDateKey(d);
-
     let label = "";
     if (i === 0) label = "Hoy";
     else if (i === 1) label = "Mañana";
     else {
-      label = d.toLocaleDateString("es-AR", { weekday: "short" });
-      label = label.charAt(0).toUpperCase() + label.slice(1).replace(".", "");
+      label = formatVenueDate(d, { weekday: "short" });
+      label = label.charAt(0).toUpperCase() + label.slice(1);
     }
-
     days.push({
       isoDate,
       dayLabel: label,
-      dayNumber: d.getDate(),
-      monthLabel: d
-        .toLocaleDateString("es-AR", { month: "short" })
-        .toUpperCase(),
+      dayNumber: Number(isoDate.slice(8, 10)),
+      monthLabel: formatVenueDate(d, { month: "short" }).toUpperCase(),
     });
   }
   return days;
@@ -102,13 +104,15 @@ export function BookingBoard({
   const [selectedSlotStartsAt, setSelectedSlotStartsAt] = useState<
     string | null
   >(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Guarda síncrona contra doble click/tap: el estado de React recién se ve en
+  // el próximo render, así que dos clicks en el mismo frame creaban dos holds.
+  const submittingRef = useRef(false);
+  const [isSubmitting, startSubmit] = useTransition();
 
-  useEffect(() => {
-    const refresh = () => router.refresh();
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, [router]);
+  // "Disponibilidad en vivo": refresco cada 30 s con la pestaña visible y al
+  // volver a ella. Antes se refrescaba en cada `focus` (incluido el que dispara
+  // el selector de fecha nativo) y también en medio de una reserva.
+  useAutoRefresh({ intervalMs: 30_000, paused: isPending || isSubmitting });
 
   const quickDays = useMemo(() => getNextSevenDays(), []);
 
@@ -152,6 +156,12 @@ export function BookingBoard({
     () => courtSlots.filter((s) => s.available),
     [courtSlots],
   );
+
+  // Si el turno que el usuario eligió se ocupó en un refresco, NO lo
+  // reemplazamos en silencio por otro horario: queda sin selección y avisamos.
+  const selectedSlotTaken =
+    selectedSlotStartsAt !== null &&
+    !courtSlots.some((s) => s.available && s.startsAt === selectedSlotStartsAt);
 
   const activeSlot = useMemo(() => {
     if (selectedSlotStartsAt) {
@@ -229,7 +239,8 @@ export function BookingBoard({
     updateUrl({ cancha: undefined });
   };
 
-  const handleContinue = async () => {
+  const handleContinue = () => {
+    if (submittingRef.current) return;
     if (isPending || !selectedCourt || !activeSlot) {
       toast.error("Elegí un turno disponible para continuar");
       return;
@@ -239,22 +250,31 @@ export function BookingBoard({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const reservation = await createHoldAction({
-        courtId: selectedCourt.id,
-        startsAt: activeSlot.startsAt,
-        endsAt: activeSlot.endsAt,
-      });
-      router.push(`/reservar/confirmar?hold=${reservation.id}`);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "No se pudo reservar el turno",
-      );
-      router.refresh();
-    } finally {
-      setIsSubmitting(false);
-    }
+    submittingRef.current = true;
+    // La navegación va dentro de la misma transición: el botón sigue en
+    // "Bloqueando turno…" hasta que la pantalla de confirmación está lista,
+    // en vez de rehabilitarse durante el router.push.
+    startSubmit(async () => {
+      try {
+        const result = await createHoldAction({
+          courtId: selectedCourt.id,
+          startsAt: activeSlot.startsAt,
+          endsAt: activeSlot.endsAt,
+        });
+        if (!result.ok) {
+          toast.error(result.error);
+          setSelectedSlotStartsAt(null);
+          router.refresh();
+          return;
+        }
+        router.push(`/reservar/confirmar?hold=${result.data.id}`);
+      } catch {
+        // Falla de red o del servidor (no un error de negocio).
+        toast.error("No pudimos bloquear el turno. Revisá tu conexión e intentá de nuevo.");
+      } finally {
+        submittingRef.current = false;
+      }
+    });
   };
 
   const panelContent = isPending ? <div role="status" className="flex h-full items-center justify-center gap-2 p-6 text-sm"><Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" />Actualizando turnos…</div> : selectedCourt ? (
@@ -266,6 +286,7 @@ export function BookingBoard({
       availableSlots={availableCourtSlots}
       selectedHour={initialHora}
       onSelectSlot={setSelectedSlotStartsAt}
+      slotTaken={selectedSlotTaken}
       onContinue={handleContinue}
       isSubmitting={isSubmitting || isPending}
       onClose={handleClosePanel}
@@ -537,6 +558,7 @@ function CourtDetailPanel({
   availableSlots,
   selectedHour,
   onSelectSlot,
+  slotTaken,
   onContinue,
   isSubmitting,
   onClose,
@@ -549,6 +571,7 @@ function CourtDetailPanel({
   availableSlots: Slot[];
   selectedHour?: string;
   onSelectSlot: (startsAt: string) => void;
+  slotTaken: boolean;
   onContinue: () => void;
   isSubmitting: boolean;
   onClose: () => void;
@@ -618,11 +641,19 @@ function CourtDetailPanel({
           </span>
         </div>
 
+        {slotTaken ? (
+          <p
+            role="status"
+            className="mb-3 rounded-xl border border-amber-400/40 bg-amber-400/15 px-3 py-2 text-xs text-amber-200"
+          >
+            El turno que elegiste se acaba de ocupar. Elegí otro horario.
+          </p>
+        ) : null}
         {availableSlots.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 p-6 text-center">
             <ClockIcon className="size-8 text-slate-500 mb-2" />
             <p className="text-sm font-semibold text-slate-300">
-              Sin turnos libres hoy
+              Sin turnos libres en esta fecha
             </p>
             <p className="text-xs text-slate-500 mt-1">
               Probá seleccionando otra fecha en el calendario superior.
@@ -707,7 +738,7 @@ function CourtDetailPanel({
         >
           {isSubmitting ? (
             <>
-              <Loader2Icon className="animate-spin mr-2 size-5" />
+              <Loader2Icon aria-hidden="true" className="mr-2 size-5 animate-spin motion-reduce:animate-none" />
               Bloqueando turno temporal…
             </>
           ) : (

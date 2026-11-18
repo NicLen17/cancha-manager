@@ -1,0 +1,14 @@
+{
+  "name": "cancha-manager-videos",
+  "private": true,
+  "type": "module",
+  "description": "Grabación reproducible de los videos de flujo de la landing (Playwright + ffmpeg).",
+  "scripts": {
+    "record": "node record.mjs",
+    "record:reserva": "node record.mjs reserva",
+    "record:admin": "node record.mjs admin"
+  },
+  "dependencies": {
+    "playwright": "1.60.0"
+  }
+}
